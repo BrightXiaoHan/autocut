@@ -4,9 +4,11 @@ requirements = [
     "srt",
     "moviepy",
     "opencc-python-reimplemented",
-    "torchaudio",
     "parameterized",
-    "whisper @ git+https://github.com/openai/whisper.git",
+    "librosa",
+    "torchaudio",
+    "ctranslate2>=3.1.0",
+    "transformers>=4.24.0",
 ]
 
 

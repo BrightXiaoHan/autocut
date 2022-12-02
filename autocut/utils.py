@@ -205,3 +205,10 @@ def trans_srt_to_md(encoding, force, srt_fn, video_fn=None):
         pre = f"[{s.index},{sec // 60:02d}:{sec % 60:02d}]"
         md.add_task(False, f"{pre:11} {s.content.strip()}")
     md.write()
+
+
+def get_cache_dir():
+    cache_dir = os.path.join(os.path.expanduser("~"), ".autocut")
+    if not os.path.exists(cache_dir):
+        os.mkdir(cache_dir)
+    return cache_dir

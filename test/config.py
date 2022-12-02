@@ -43,7 +43,7 @@ class TestArgs:
         lang="zh",
         prompt="",
         whisper_model="small",
-        device=None,
+        device="auto",
         vad=False,
         force=False,
     ):

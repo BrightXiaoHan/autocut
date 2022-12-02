@@ -85,9 +85,16 @@ def main():
     parser.add_argument(
         "--device",
         type=str,
-        default=None,
-        choices=["cpu", "cuda"],
+        default="auto",
+        choices=["auto", "cpu", "cuda"],
         help="Force to CPU or GPU for transcribing. In default automatically use GPU if available.",
+    )
+    parser.add_argument(
+        "--quantization",
+        type=str,
+        default=None,
+        choices=["int8", "int8_float16", "int16", "float16"],
+        help="Force to use quantization for transcribing. In default automatically use float32.",
     )
 
     args = parser.parse_args()

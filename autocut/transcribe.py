@@ -2,11 +2,15 @@ import datetime
 import logging
 import os
 import time
+import subprocess
 
 import opencc
 import srt
 import torch
-import whisper
+import ctranslate2
+import transformers
+import librosa
+import numpy as np
 
 from . import utils
 
@@ -16,6 +20,7 @@ class Transcribe:
         self.args = args
         self.sampling_rate = 16000
         self.whisper_model = None
+        self.processor = None
         self.vad_model = None
         self.detect_speech = None
 
@@ -26,7 +31,7 @@ class Transcribe:
             if utils.check_exists(name + ".md", self.args.force):
                 continue
 
-            audio = whisper.load_audio(input, sr=self.sampling_rate)
+            audio, _ = librosa.load(input, sr=self.sampling_rate, mono=True)
             if (self.args.vad == "1" or
                 self.args.vad == "auto" and not name.endswith("_cut")):
                 speech_timestamps = self._detect_voice_activity(audio)
@@ -70,17 +75,68 @@ class Transcribe:
         logging.info(f"Done voice activity detection in {time.time() - tic:.1f} sec")
         return speeches
 
+    def _load_ctranslate2_whisper_model(self, model_name, device="auto", quantization=None):
+        """Load ctranslate2 whisper model"""
+        model_name = f"whisper-{model_name}"
+        self.processor = transformers.WhisperProcessor.from_pretrained(f"openai/{model_name}")
+        cache_folder_name = f"{model_name}-{quantization}" if quantization else model_name
+        model_path = os.path.join(utils.get_cache_dir(), cache_folder_name)
+
+        if not os.path.exists(model_path):
+            logging.info("Converting model to ctranslate2 format...")
+            command = [
+                "ct2-transformers-converter",
+                "--model",
+                f"openai/{model_name}",
+                "--output_dir",
+                model_path,
+            ]
+            if quantization:
+                command.extend(["--quantization", quantization])
+            subprocess.check_call(command)
+        else:
+            logging.info("Model already converted to ctranslate2 format.")
+            logging.info(f"If you want to re-convert, please delete the cache folder {model_path}.")
+        model = ctranslate2.models.Whisper(model_path, device=device)
+        return model
+
+    def _ctranslate2_transcribe(
+            self,
+            audio: np.ndarray,
+            task: str,  # transcribe or translate,
+            language: str,
+            initial_prompt: str = "",
+    ):
+        inputs = self.processor(audio, return_tensors="np", sampling_rate=16000)
+        features = ctranslate2.StorageView.from_array(inputs.input_features)
+        if initial_prompt:
+            prompt = ["<|startofprev|>"] + self.processor.tokenize(initial_prompt)
+        else:
+            prompt = []
+        prompt.extend(
+            [
+                "<|startoftranscript|>",
+                f"<|{language}|>",
+                f"<|{task}|>",
+                "<|notimestamps|>",  # Remove this token to generate timestamps.
+            ]
+        )
+        results = self.whisper_model.generate(features, [prompt])
+        transcription = self.processor.decode(results[0].sequences_ids[0])
+        return transcription
+        
+
     def _transcribe(self, audio, speech_timestamps):
         tic = time.time()
         if self.whisper_model is None:
-            self.whisper_model = whisper.load_model(
-                self.args.whisper_model, self.args.device
+            self.whisper_model = self._load_ctranslate2_whisper_model(
+                self.args.whisper_model, self.args.device, self.args.quantization
             )
 
         res = []
         # TODO, a better way is merging these segments into a single one, so whisper can get more context
         for seg in speech_timestamps:
-            r = self.whisper_model.transcribe(
+            r = self._ctranslate2_transcribe(
                 audio[int(seg["start"]) : int(seg["end"])],
                 task="transcribe",
                 language=self.args.lang,
